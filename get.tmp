@@ -1,0 +1,59 @@
+{
+    "armor": 8,
+    "availableContexts": [
+        ""
+    ],
+    "baseArmor": 8,
+    "bonusLists": [],
+    "bonusStats": [
+        {
+            "amount": 2,
+            "stat": 7
+        },
+        {
+            "amount": 3,
+            "stat": 3
+        }
+    ],
+    "bonusSummary": {
+        "bonusChances": [],
+        "chanceBonusLists": [],
+        "defaultBonusLists": []
+    },
+    "buyPrice": 2435,
+    "containerSlots": 0,
+    "context": "",
+    "description": "",
+    "disenchantingSkillRank": 1,
+    "displayInfoId": 9505,
+    "equippable": true,
+    "hasSockets": false,
+    "heroicTooltip": false,
+    "icon": "inv_pants_02",
+    "id": 4242,
+    "inventoryType": 7,
+    "isAuctionable": true,
+    "itemBind": 2,
+    "itemClass": 4,
+    "itemLevel": 15,
+    "itemSource": {
+        "sourceId": 3759,
+        "sourceType": "CREATED_BY_SPELL"
+    },
+    "itemSpells": [],
+    "itemSubClass": 2,
+    "maxCount": 0,
+    "maxDurability": 65,
+    "minFactionId": 0,
+    "minReputation": 0,
+    "name": "Embossed Leather Pants",
+    "nameDescription": "",
+    "nameDescriptionColor": "000000",
+    "quality": 2,
+    "requiredLevel": 10,
+    "requiredSkill": 0,
+    "requiredSkillRank": 0,
+    "sellPrice": 487,
+    "stackable": 1,
+    "upgradable": true
+}

@@ -1,0 +1,40 @@
+#!/bin/bash
+#
+# Purpose: test that a correctly formatted curl call returns the
+# same information now as it did in the last build cycle.
+#
+
+curl -X GET  http://us.battle.net/api/wow/item/4242 | python -mjson.tool > get.tmp
+diff get.tmp get.blessed > empty_no_diff
+
+# If the current curl results are different from the last verified results,
+# fail the test and show the differences.
+#
+# By pumping the curl results thru python -mjson.tool, we get:
+# a multi-line formatted version of the curl results, 
+# making it much easier to see what happened.
+#
+# If the difference is not significant, simply move the temp results into
+# the blessed file: as below.
+# SHELL COMMAND: mv post.tmp post.blessed
+#
+# REFACTORING NOTE: we could pull out the guts & comments in tget and tpost into 
+# one, data-driven shell-script, then just invoke with get or post as parameters.
+#
+
+
+if test -s empty_no_diff; then              # file exists and size is > 0
+    echo "Different Result from blessed!";
+    echo "The empty_no_diff file should contain a list of differences";
+    cat empty_no_diff;
+    echo "See? Some differences!";
+    echo "Validate which version is right:"
+    echo "then ***move get.tmp to get.blessed***"
+    echo "And we should also track the number of false positives so we can tune and reduce the overhead of test analysis."
+else
+    echo "Test has same outputs as the blessed test";
+    cat empty_no_diff;
+    echo "See? Empty!"
+fi;
+
+
