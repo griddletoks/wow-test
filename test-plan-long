@@ -1,0 +1,221 @@
+Blizzard Test Engineer Interview
+Full Name: Larry Mellon
+Email Address: larry.f.mellon@gmail.com
+Date: April 8, 2015
+1.	SCOPE 
+This document touches lightly on data validity, as no source of valid data is currently available.  Similarly, security testing is summarized only, as we’d need to dive in with the ops team on configurations and potential failure spots to focus testing on.
+
+Given that service is already up and running, we can measure performance at scale via load testing, but at the risk of bringing down a Live, customer-facing service. All the below tests assume there is a safe environment available for testing purposes, somewhere. If one is accessible, there are three packages I’d to try: Drupal, RunScope and Gatling. Flood.io has Gatling support and test clients that generate parallel load from multiple machines. I was able to connect to the Live servers via RunScope and inspect response packages: these tests are online at RunScope, including a few Data Validity and Performance Response tests.
+
+The requirements for this test suite can be grouped conceptually into three basic categories:
+•	The Items and Item Sets API itself: Functionality and data validity tests from the viewpoint of the player.
+•	The Fielded Service: Performance, security, uptime, responses to failures and capacity planning tests.
+•	The Testing Harness: This test rig has five use cases of its own. It needs to be callable in Build Release testing, CI testing, live operations health testing, load testing and engineering tests. 
+o	To meet the speed requirements of CI and engineering tests, we propose a series of tests that increase the coverage (and thus execution times) at each of the above stages. 
+o	Thus, before a new build gets pushed Live, testing is done via the combination of CI & BR, while capacity testing, performance at load testing and force-to-failure tests are only run when sensitive changes are ID’ed within a candidate build (once the load tests have passed through the Calibration phase). 
+o	An engineer making service mods will need to run any of the above tests, against any provided test environment.
+2.	Testing strategy (summarized by test type):
+To minimize the amount of test harness work, we want most of these tests to just be different combinations of inputs that configure test clients, vary the number of test clients, and have different test output requirements. Some testing requirements are probably already met by existing test harnesses: it is very important to dig around and see what can be repurposed or extended. 
+Once you’re up and running with, say, load testing, you can’t afford to keep duplicative tests laying around: the overhead will kill your ability to quickly add, extend tests and interpret test results.
+
+Security testing
+•	Being a public-facing service, our security testing should be pretty much off the shelf. Example test cases are: 
+o	How does the server respond when under DDOS conditions (test that alerts are generated and any automated reaction happens as planned); 
+o	Input validation (per API call) and that all data is read-only.
+•	If Ops does not already have DDOS simulation capability, we can wire-up the load tests into an app-level DDOS test (essentially the forced overload failure testing, described below). Hardware-level DDOS testing and testing the alert-triggering and possibly action-triggering mechanisms are best done in concert with the data center support team and should require very little new software. 
+•	Cross reference to their operational response DDOS-test-suite and their machine-level-hacking-attacks-tests to avoid duplication.
+
+Overload and Failure analysis testing
+•	As a Live service, 24x7 uptime is the goal. This requires some extra testing rig support. 
+•	Example test cases (each test requires starting a load test and letting it reach steady state, except flashover testing):
+o	Crash or disconnect each physical server; validate the alert system response and any auto-rollover capabilities of the service kick in.
+o	Crash the server-side process(es); validate that the process(es) restart successfully, that alerts go out and that any process stack traces are saved for post-mortem analysis.
+o	If the server is cloud-hosted (verify), we may also need to test auto-scaling by increasing and decreasing the number of load test clients and queries per second across the auto-scale boundaries.
+
+Performance testing
+•	Even though the Items API, connected to a publicly available server, implies this API is not used in runtime-sensitive portions of the gameplay experience, communities are an important part of the overall player experience of WoW and are therefore subject to performance requirements and server stability requirements. 
+•	This breaks down into several configurations of actual tests, but ideally done with a single test client & test rig. Example test cases are listed, below.
+•	Throttling
+o	Verify that 3,000 calls a day per unregistered user is supported at a TBD performance level, while the servers are being hit with typical peak load traffic.
+o	Verify that calls over this are bounced, except for registered users, in which case the allowable calls per day increases substantially (TBD value for registered users). This entails: starting a load test with typical peak loads, reaching steady state, then adding more test clients with a much higher number of API calls and verifying the test client gets back the right error messages and that throttling alerts are generated server-side. There are likely some tricky spots with test client IDs here: most of the users are considered anonymous, not registered. We’ll have to figure out how the server decides a user is anonymous and replicate that in the startup phase of a load test: starting each test session with new user IDs is the way to go, but ‘anonymous’ might be IP-based or machine-name based, which would make starting a new load test on the same test servers problematic.
+o	See also: TPS Report (Typical Player Session) for defining load test clients by volume of transactions, Acceptable Latency metrics and Calibration testing. 
+o	The registration component that ups the numbers of queries per day per user also needs testing. Registration needs an API functionality test as well as running the above load tests and verifying that requests-per-day goes up for only the registered users. Cross-reference this with security testing; registration services are a common hacking and DDOS attack point.
+•	Capacity planning 
+o	We need the ratio of supportable users per server for the full service’s operational costs and predicting when additional capacity will be required. 
+o	This is primarily a scaling analysis that uses load tests against candidate server clusters to roughly establish the number of simultaneous users per machine, giving you invaluable provisioning data and an approximate cost per user number, used in optimizing the operational costs and planning for growth.
+•	Soak testing 
+o	This is an artificial aging technique used to measure system stability and resource utilization, such as memory leaks, over time.
+o	Use the load testing rig to simulate larger-than-peak loads, essentially compressing days of standard uptime loads into hours of test execution times. This is vital during scalability, stability and performance at scale testing.
+o	Once the load test has hit steady state, it is simple to sample latency times across the full API and provide actionable information. 
+o	Note that sampling before reaching steady state produces highly variable performance data and should be restricted to failure testing, described below.
+•	There is a chance that this API is hosted on different servers that are part of the main, in-game experience loop, either at the simulator or user interface levels. So we need some architectural information from production to see if this interface needs a stronger performance test that simulates internal access and/or has different latency requirements. 
+
+Fail testing
+•	Push the servers to and past the brink by first starting a typical load test, letting it reach steady state, then radically increasing the number of load test clients and/or the number of calls per API endpoint.
+•	The outputs of these are bug reports for specific crash failures found and a table list of the levels reached per API endpoint, the server resources being consumed at that level, and the number of load testing clients.
+•	Note that significant increases in latency are considered a failure as well, not just when the service goes down.
+•	Flashover testing is also required, such as what happens when a service goes down and comes back up; there is typically a huge spike in transaction requests when the service comes back up, and these are often resource intensive actions, such as logging back in; in the worst case, the servers will start to thrash & crash on the same problem that took them down in the first place, or in new problem areas that need to be explored. Further, such spikes hit before any caching behaviors kick back in, significantly worsening the effects. Note also that while most performance metrics at sampled at steady state, flashover testing, by definition, is the most interesting before steady state is reached and often stresses hard-to-reach portions of the server failsafe code.
+
+Continual Integration testing
+•	It is rarely feasible to include significant performance testing at the per-checkin level testing in CI. Similarly, full data validation may be deemed too slow and/or resource intensive to include in CI. Therefore a staged series of comb filter tests are proposed, where regressing performance characteristics is done overnight against an isolated server environment and only basic functionality and validity tests are done in CI.
+
+Build Release testing
+•	After a candidate build has made it through CI (assuming CI is used), we can afford to invest more testing resources into it. Thus BR includes:
+o	A functional pass on all API calls (with both valid and invalid inputs); 
+o	Data validity checks against the full set of Items and Item Sets; 
+o	Manual testing/inspection against a few Items; 
+o	A short load test that triggers at least some of the throttling/auto-scale functionality, and that the server is responding correctly to a low volume of correctly formatted calls.
+o	Security testing.
+
+Engineering tests 
+•	Used in the analysis and development of server code changes. 
+•	All tests need be runnable by engineers, against candidature servers of their choosing. Specifically, this includes functionality tests, variable load tests and security tests and failure tests (DDOS, dead server recovery, dead process recovery).
+
+Functionality testing
+•	Does the API respond correctly to both correctly and incorrectly formatted requests?
+o	Samples are broken down further in the Test Cases, below.
+
+Data validation testing
+•	Does the Data received via the API conform to interpretable information (that is, readable, non-garbage data that falls within the approximate boundaries of correctness)?
+•	Then once the Data has been sanity checked, we can go an extra level of depth and verify Master Source of information about item values. That is, attributes, bonuses, item-use-restriction-fields, items-sets and similar tuning parameters that can change across builds. Essentially, this is a build validation test to ensure that tuning changes made by the design team percolate correctly through the build and deploy processes to the live servers. 
+•	Note also: CI tests may be a sub-set of data integrity for speed reasons.
+
+Localization testing or cross-region testing
+There is probably something already available (verify). So this is out of scope right now.
+3.	Test Entry and Exit conditions
+
+Essentially, all of the above is setting up the acceptance criteria for this service, which is a combination of raw API functionality, data sanity checks, response times at scale, service uptime, security tests, correct failure behavior and cost of server infrastructure. Infrastructure costs for the load testing itself also needs to be measured, but it does not impact the acceptance criteria for the Items API. In turn, this gives us the ability to define when the test harness is complete; these are both test entry requirements for performance testing. And of course, the testing harness requirements, defined above, must be met before testing can proceed.
+•	Then for each test case, we break down the initial steps that bring the test client into a specific, repeatable state.
+•	Given that the service is already up, we can bypass the “is the product ready to be tested” question, but normally we would not begin testing until a stable server environment is available and all API endpoints are supported. Then we would phase in ever-increasing performance requirements (such as “Item Get calls shall have under ten seconds average latency” in the first phase, then “under one second average latency” in the next phase, then “maximum latency under one second” and so on). Similarly, we can increase the size and length of each soak test, and also incrementally phase in failure testing, bad-input testing and security testing.
+•	Performance testing, broken down into such phases, can be considered an executable specification of the service that can be used for milestone tracking and accurate projections of the server development pace against target launch dates, with sufficient lead time left to be able to respond at the executive level (changing resources, priorities, requirements and dates). This projection capability is what drove the adoption of load testing in both EA and KIXEYE.
+•	Determining when sufficient testing has been done is best broken down into such measurable milestones, to both keep the problem in front of the test team tightly scoped during each phase and to measure progress of the testing system itself.
+
+
+The list of Entry Tasks to meet this set of tests is provided, below.
+•	Note that many of these tasks are iterative in nature: get something on the ground and then tune the input parameters, observable metrics and the success conditions per test until Production, QA, Operations and Community Management have signed off on the test inputs and the measures of success.
+•	This makes determining “when is this Test Suite considered complete” and “when is the service considered sufficiently tested” into complex questions. We propose the following, ordered steps as the measure of success:
+o	Stand up a minimal functionality test. From one test client, expected behaviors only. Essentially, this is your starting point for CI testing for Items.
+o	Define an initial TPS (Typical Player Session, defined below in Test Entry Tasks) and run a small load test: ten test clients, each one starting, executing and stopping the same TPS, then starting another TPS client, for an overnight test run (assume 8 hours) against an isolated test server. This is your initial soak test; congratulations, you now have a viable load test! Your secondary goal here is to smooth out how to configure and run multiple test clients; it can really get in your way later when you are trying to run larger, blended load tests, or when you try to reuse the harness.
+o	Define and populate server-side code with metrics, at the minimum to consist of:  resource metrics (CPU, memory and network messages), transactions per second, per transaction type, and average/min/max service times per transaction. Congratulations, you now have a way to observe and act on performance defects! Which is just as vital in load testing as having multiple test clients.
+o	Populate the test client with latency metrics per call, and provide a way to aggregate such data over time, and a way to sample the data once steady state has been achieved. This is a critical cross-check against the server-side metrics and a truer view of latency from the client’s perspective. If the wow-unit-test rig (or any of the 3rd party test rigs) does not already collect performance data, statsD is a great choice for collecting performance data from both servers and from test clients, and it is quite useful to have the test client metrics in the same database as the server performance metrics. Some of the 3rd party test rigs have such metrics embedded and aggregated, ready for use. See also: 3rd party library options, below.
+o	Measure and reduce the typical time for the load test to reach steady state. This varies a lot across projects, but you’re looking for something in the under 5 minutes range. This is often bound to how well the servers handle flashover testing, so there may be an upper limit on test cycle speed here.
+o	Run calibration tests to fine-tune the transaction volumes per second and to establish performance variance bounds for later analysis.
+o	Extend the above steps to include full functionality tests, iterating and improving the metrics.
+o	Extend the TPS (defined below) to include blends of new and advanced users. The easiest place is usually running a load test with N clients using TPS.novice data and X other clients using TPS.advanced data.
+o	Review the server architecture with Production & Operations to decide what failure conditions to test, and how to simulate the failure conditions.
+o	Extend the above steps to include full data validity tests, against an approved Master Data List.
+o	At this stage, the tests are fully constructed, but will take many test iterations until the stakeholders will be comfortable signing off. This stage starts with figuring out the best soak test levels, execution times, and TPS blends, then exits when you have set up nightly, short, soak tests to regress against performance, and re-tuned your calibration tests. This stage of performance testing is usually the longest: it takes engineering time and wall-clock time to get each server-side optimization scheduled, built and deployed, and each time a failure point is hit, the engineers need to fix it before you can scale to the next bottleneck. Thus this stage is also your biggest headache in planning: nobody expects it to take a long time, so expectation management, early and often, is central to success.
+
+Thus the Test Entry conditions are summarized as:
+•	Construct minimal functional and performance clients, get initial buyin.
+o	Define and publish the above easily trackable steps.
+o	Populating your load testing framework with a minimal set of inputs and a minimal set of performance metrics is the next success condition.
+•	Tune and extend the tests.
+o	Calibrate and tune the testing system and both client and server metrics via repeated soak tests.
+o	Extend to full functional coverage.
+o	Extend to larger, longer soak tests.
+o	Extend to failure case testing by jacking up transaction volume.
+o	Introduce artificial failures in the servers to test alerts and rollover/restart actions.
+
+Test Exit Conditions in Performance Testing is a loop, not a step:
+•	Get signoff from all stakeholders on the TPS and acceptable performance criteria, as described above in milestone testing, remembering this is a highly iterative process. 
+•	You’ll probably repeat these key actions many, many times: calibrate, scale up clients, run longer soak tests and forced-failure tests, hit a performance bottleneck, file a ticket and wait. Rinse and repeat, as required. 
+•	When the service responds correctly to all functional testing, and when performance response times meet the service launch requirements, you’re only mostly done.
+•	When the testing system and the performance testing processes are in place (CI, BR, load, security, etc), you’re finally done. Except for supporting test analysis and extensions against the ever-evolving servers and ever-growing user base, of course!
+
+Test Suite Task List
+
+•	The biggest information gap is a source of information to validity-check the data for each Item. This should be obtainable from Production and is only difficult by the volume of Items and their attributes.
+•	However, for performance testing, calibrating the inputs and outputs of the test is the critical task to achieve first. Calibration requirements are established by talking to the community managers and the producer associated with this feature to get three items: 
+o	A TPS report (Typical Player Session Report).
+o	A projected number of simultaneous users @ peak usage times.
+o	Approximate ranges of acceptable latency values and failure rates per API call to prime the test clients and the calibration cycle. 
+o	Iterate as needed until signoff.
+•	A TPS Report consists of: how long a player session typically lasts and the list of typical actions. Example: login; check your friends-list status; check for alerts; look at current resources; buy some objects; attack an enemy; repair damage; research technology tree; chat with some friends; logout. A possible source for the TPS might be the www.wowhead.com site, which allows players to quickly search through the items available via the Items API. It performs searches against the various the data elements, and provides a graphical representation of items, combination of items, icons, bonus values, etc. So, measuring myself as a novice user of that system, my session consisted of: about 30 minutes in time, and many searches against item Names, Attributes, Sets, etc. Experienced players obviously will use the system differently, so eventually you do want to be able to run with multiple TPS reports, describing both novices and advanced users hitting the system simultaneously. But we’re restricting the scope to a single TPS for right now. So, TPS summary estimates: 30 minutes, two queries per minute, randomly across known-good Item IDs.
+•	 Defining service performance failures: the events that can trigger an interruption in the player experience depends on when and where a significant increase in latency happens to hit; we may also have to define a threshold count (the number of times a latency hit occurs per N transactions, or per TPS, or per time window). So sitting down with the community managers is a required precondition, but I’ll make some simplifying assumptions here. 
+o	Assume: anything under one second is an acceptable performance level for live, loaded Item servers at peak user rates.
+o	Any requests from the client to the server over that latency limit are flagged as a Player Experience Interrupt, as are things like actual page-not-found errors.
+o	Any session that has more than two PEI interrupts per simulated user is deemed a failure. 
+o	Note that you can tailor the PEI levels and counts to the stage of any given server’s development; large error rates and long latency times are common early in development, so we want to roll these in from simple, embarrassingly easy tests to pass, then ratcheting up the quality requirements in concert with the server development timetable.
+•	Another infrastructure requirement is sufficient instrumentation to measure server performance and resource utilization at scale. If the Items service is not yet instrumented, we would need to work with engineering to drive some basic counters into the live system to help calibrate the TPS report, and help them respond quickly to problems behind the API.  Similarly, we should be able to find some basic web metrics on the number of transactions per second from the live servers, as well as resource utilization (CPU, memory, network) and average/mix/max transaction times. That should give us a pretty good base for performance testing against the API, but more importantly, a baseline to measure performance changes, for good or bad, over time. It also supports engineering in their iterative improvements to the TPS inputs and the metrics coming out of a load test, as well as to iteratively refine the performance characteristics of the server itself.
+
+Calibration of Load Tests
+•	Calibration is essential in providing a measurable, repeatable baseline, tuning the TPS and getting actionable information out of load testing.
+•	To calibrate input frequency, volume per transaction type and the number of simultaneous connections: use server-side embedded metrics in the fielded system to both tune inputs for the TPS and also to examine the data variance.
+•	If, for example, there is a +/- variance of 1-millisecond, you will not be able to measure a 100-microsecond performance difference across builds. 
+•	It is critical to run calibration tests early in the development cycle: nightly performance regression tests (indeed, any performance test) need a range of data defined as within the norm to reduce the false failure rates. 
+•	There are a few other calibration steps, such as the ramp up time (wallclock time within the load test to reach steady state), which is important in both deciding when to start sampling for performance data and important in keeping iteration cycle times fast. For example, if it takes 20 minutes to ramp up to steady state, engineering gets a smaller number of optimization measure/change/measure cycles per day, which in turn slows down scalability improvement in the servers. Further, performance-related metrics are much better sampled after steady state than before.
+•	Note also: to ensure the arrival of sufficient simultaneous events from different connection points, the test itself needs to be distributed across multiple servers at the minimum, and ideally from multiple data centers. 
+•	Deciding on the amount of traffic from each simulated client is key. It is common to run test clients at a higher transaction volume than real clients: it keeps the cost of load testing servers down and usually gets you to steady state faster. However, it does expose you to simulation errors, in particular, the number of connections into the server and the number of simultaneous transactions. There is no hard and fast rule here, except that you will probably hit an unexpected problem, and hence the iterative Calibration Testing requirement to increase the accuracy of the simulation.
+
+CI and BR testing
+Due to time and execution expenses, it is not feasible to run all tests in the CI cycle: so we use a staged series of comb filter tests, each providing in increased level of test fidelity. For example, core functionality only tests are used in the CI system, along with a few data validation tests. Builds that get past CI then get the full functionality/data-validity tests, some performance tests and basic security and soak tests. Finally, when any full system performance test of the entire server cluster is done, where other WoW tests are hitting other server components, we would run this load test with our simulated web Item API users. This catches some scalability problems in the cluster, such as overloading the data center fabric, but it is not as good as a full, end to end test of the entire system: I’ve seen cascading performance hiccups take down KIXEYE’s War Commander servers that had passed three separate sub-system tests.
+
+Capacity cost testing
+You do want to know where your resources are going, so a quick and dirty analysis is possible with this type of load test. Example, if 10,000 users can be supported at a decent level of latency on one server, do 100,000 users require 10 servers? Or double that? By running a few load tests at different levels, you can easily project the server costs as the player base increases. Keeping your TPS tuned lets you do capacity planning as the service increases in data volume and/or CPU/RAM resource requirements. 
+Forced Failure or Service Overload testing
+There are some clear failure conditions: data security testing that fails at the API level (such as attempts to write Item data, or accessing garbage Item Ids), throttling testing, auto-recovery testing and testing auto-scaling servers. This is where we need to spend time with the system architect before we can define this part of the test plan. 
+•	While not part of the externally facing elements of the API, we will need to simulate some failure conditions and see how the software recovers.  
+•	Is the system expected to be fault tolerant? That is, if the server software crashes, is it expected to self-restart? And if so, what alerts are posted? 
+•	If the physical server dies, is there an automatic rollover to a backup server? And if so, how can we externally verify that that has happened correctly when we force a simulated failure on the server by, say, unplugging it. 
+•	Or if it is a cloud-based, AWS-style dynamic server, at what points do they expect auto scaling to be triggered, such that we can generate that amount of load, and externally validate that performance characteristics have remained within bounds, even while the number of simultaneous players has increased, and later decreases and triggers auto-scaling down?
+ Localization testing
+•	Sanity checking data across the localization barrier is something to leave for now. 
+•	We’d need some whiteboard time with the localization team on how they currently test data and if there’s any thing we can tie into before constructing a new system, and also establish if leaving localization testing out is an acceptable risk for the product owner of this player-facing service. 
+•	There’s another restriction that you only get access to information inside one particular region; multiple regions checking is outside the scope of this test suite, but could be easily added by walking the same tests through multiple region sites, but with different data-validity checking. 
+4.	Test Cases 
+
+Data validation test cases
+•	Due to the volume and complexity of data items, a full breakdown exceeds the scope of this test suite. Further, the precise validity of each Item is unknown without a pre-build Item-Values-Table to validate against.
+•	Instead, we make some simplifying assumptions, such as: for each Item-ID, fetch the Item and do a simple validation test, based on a random inspection of Items to set the boundary conditions. For example:
+o	ASSERT: the Item-Name field in the JSON blob is non-zero
+o	ASSERT: the Item-Name field in the JSON blob is less than 128 (a magic number picked after visually scanning several Item-Names).
+o	ASSERT: each bonus field is lower than an arbitrary ceiling.
+o	ASSERT: [more as required]
+•	Then repeat those asserts against all Items and Item Sets. 
+•	Item Set testing further requires dereference testing: are all the Item-IDs found in each Item Set also valid, per the above Item validity testing.
+•	This assumption/assert approach lets you get a basic test up and running quickly, with no dependencies on the Production team for correct data ranges, but then easily upgrade the test with more asserts against every Item attribute, and increasingly precise data ranges.
+•	To meet CI testing speeds, we might have to only test a subset of Items via a Basic Data Validation test: are their attribute values grotesquely distorted? That’s something we can safely add into the CI process to monitor accidents. 
+•	Then a Detailed Validation test is a separate test, run during BR testing, that checks a master objects/attributes/bonus value information source: the same production-side data that gets fed into the build system. Validating against that original source material ensures there were no build burps that took the build data set out of sync with the master list. 
+
+Performance test cases
+•	Setup and teardown steps for the load generation servers and for the test clients themselves need to be defined. This is deferred as out of scope for now, but I’ve found AWS cloud servers to map nicely to load testing. Some number of small servers can be spun up for free, making it easy to get buyin into the cloud approach. And AWS provides sub-accounts, so you can bill load generation servers to specific game projects.  As part of calibration testing, you can also experiment with the various types of AWS servers for your best price point: cores, memory and bandwidth are all selectable. Note that performance tuning is a little odder in the cloud than with dedicated servers; https://media.amazonwebservices.com/AWS_Development_Test_Environments.pdf  and http://www.datadoghq.com/wp-content/uploads/2013/07/top_5_aws_ec2_performance_problems_ebook.pdf are good starting points. There was a great white paper on performance variance I read last year that I can’t find right now. If you go down the AWS path, be prepared to answer, at least once per week, why you’re not using the cheapest server types: the spot market servers. They can be swapped out at any time by someone who bid a higher price, which trashes your steady state view.
+•	The milestone-based approach to phasing in performance requirements, described above, breaks down nicely into test cases. An example set of milestone test cases would be:
+o	M1: the average transaction latency is less than 5 seconds; no more than 10% of transactions return errors (timeout, page not found, …), when running a 30 minute soak test with 10 clients.
+o	M2: the average transaction latency is less than 2 seconds; no more than 10% of transactions return errors (timeout, page not found, …), when running a 60 minute soak test with 100 clients.
+o	M3: break average transaction latency down into average latency per transaction type, all of which (except, say, registration) are below 1 second; no more than 1% of transactions return errors, all while running a 2 hour soak test with 1,000 clients.
+o	M4: run an 8 hour soak test, 10,000 clients, with less than 0.1% transaction errors, same latency values as M3.
+o	M5: repeat M4 criteria, but on cloud servers instead of physical servers.
+o	M6:  48 hour soak test, 100,000 clients, with the same latency requirements.
+o	M7: repeat M6 criteria, but with a blend of 50,000 TPS.new-user clients and 50,000 TPS.experienced-user clients.
+o	M8: ship it!
+•	Inside each test client, measure the average/min/max latency per call and flag an error if they go above a defined threshold.
+•	For the load test as a whole, report the above latency metrics, aggregated across all test clients, for soak tests. 
+Functionality test cases
+•	As with the above Performance Test Cases, phasing in functionality tests on a milestone basis is the best approach, because that’s how the production engineers tend to work anyways, and like with performance testing, the rate of increasing functionality can be trend-lined into an increasingly accurate projection of completion dates.
+o	M1: all endpoints can be reached; all return valid data when given a small sample set of valid Item-IDs.
+o	M2: repeat M1 requirements, plus validating that all endpoints correctly handle being passed invalid Item-IDs.
+o	M3: repeat M2, plus adding test-user-registration capability.
+o	Etc.
+
+5.	3rd Party Tools  and other External Dependencies
+•	If sufficient metrics are not already in place (verify with engineering and ops), I’d suggest statsD for the in-code probes and data aggregation, Diamond for server resource metrics and grafana/graphite for the storage and visualization. These are all open source packages with low overhead and proven scalability.
+o	https://github.com/etsy/statsd/wiki
+o	http://grafana.org/ (A much needed UI upgrade over the original graphite).
+o	http://graphite.readthedocs.org/en/1.0/tools.html (diamond and collectd are the two I’ve used)
+•	I ran some single test cases against the Live servers with RunScope: these are available online at RunScope, including a few Data Validity and Performance Response tests.
+•	If there is a testing environment available, I’d like to try some Gatling load tests. Flood.io has Gatling support and test clients that generate parallel load from multiple machines. It is free for small numbers of clients, and has a nice builtin set of performance metrics with a nice-looking GUI. And the looping structures it supports are quite useful in keeping the volume of data validation tests low, versus spelling out each Item’s validity tests the way RunScope seems to limited to. Alternately, https://github.com/newsapps/beeswithmachineguns is pretty nifty, although it had limited functionality when I tried it last year.
+•	The 3rd party player site, http://www.wowhead.com/items=-1, has been quite useful in exploring the raw Items, their relationships and bonus parameters. This is how I established the (very rough) initial data validation tests: random sampling across Items and Item sets.
+•	There are several web-references to a wow-unit-testing rig; that is likely to provide what we need for data validity testing, either as an information source, or a rig that is fast enough to use in some combination of CI, engineering tests, build release testing, full data validity tests, and possibly even load testing (dependent on the resource footprint of the test client and the number of simultaneous users required).
+o	See also: http://www.curse.com/addons/wow/wowunit and https://github.com/Mirroar/wowUnit 
+o	Failing that, we’d need to get a data validity table from Production to test against.
+•	Another interesting option is Drupal. I’ve not used it before, but it claims to have some testing hooks for WoW. It may have fallen out of date though; the last update post was in 2011.
+o	https://www.drupal.org/project/wow/testing-status
+o	It claims support for Items and API authentication! 
+o	And even some support for localization testing across several regions.
+
+•	There appear to be some test-helper objects (such as this object http://www.wowhead.com/item=5418/weapon-of-mass-destruction-test ): work with QA and Eng to get access to and extension to such objects; they usually make testing much easier at a small cost.
+
+
+
+
