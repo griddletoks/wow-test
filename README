@@ -1,5 +1,7 @@
 From a shell, run python item_validation_tests.py for the main tests.
 
-Two other tests exist: tget and tput are both bash shell scripts and have internal documentation
+Two other tests exist: tget and tput are both bash shell scripts and have internal documentation.
 
-The files get.blessed and post.blessed are used as the Last Known Good basline for simple service and data validation tests.
+The test plan is also provided (about a dozen pages on testing techniques and requirements), and the development approach I used.
+
+The files get.blessed and post.blessed are used as the Last Known Good baseline for simple service and data validation tests.
